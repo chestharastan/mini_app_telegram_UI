@@ -10,8 +10,10 @@ import { CartDrawer } from "../components/CartDrawer";
 import { AUTH_API_ENDPOINT } from "../data/auth";
 import { ORDERS_API_ENDPOINT } from "../data/orders";
 
-const TELEGRAM_CHECKOUT_MESSAGE =
-  "Telegram init data is missing. Open this shop from the bot's Mini App button, not as a normal Vercel link.";
+const PHONE_REQUIRED_MESSAGE = "Enter a valid phone number to checkout.";
+const TELEGRAM_PHONE_SHARED_MESSAGE = "Telegram phone shared. You can checkout now.";
+const TELEGRAM_PHONE_UNAVAILABLE_MESSAGE =
+  "Could not get your Telegram phone. Enter it manually to checkout.";
 
 function getTelegramWebApp() {
   return window.Telegram?.WebApp;
@@ -28,10 +30,32 @@ function getTelegramInitData() {
   return getTelegramWebApp()?.initData || getTelegramLaunchParam("tgWebAppData");
 }
 
-function isLocalCheckoutPreview() {
-  if (process.env.NODE_ENV === "production") return false;
+function getTelegramContactPhone(contactPayload) {
+  if (!contactPayload || typeof contactPayload !== "object") return "";
 
-  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+  const contact = contactPayload.contact ?? contactPayload;
+  return (
+    contact.phone_number ??
+    contact.phoneNumber ??
+    contact.phone ??
+    ""
+  );
+}
+
+function normalizePhoneNumber(value) {
+  const cleaned = String(value)
+    .trim()
+    .replace(/[^\d+]/g, "")
+    .replace(/(?!^)\+/g, "");
+
+  return cleaned;
+}
+
+function isValidPhoneNumber(value) {
+  const normalized = normalizePhoneNumber(value);
+  const digitCount = normalized.replace(/\D/g, "").length;
+
+  return digitCount >= 7 && digitCount <= 15;
 }
 
 function getCheckoutErrorMessage(data, fallback) {
@@ -182,6 +206,11 @@ export default function ProductListPage() {
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutStatus, setCheckoutStatus] = useState("idle");
   const [checkoutMessage, setCheckoutMessage] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [canRequestTelegramContact, setCanRequestTelegramContact] = useState(false);
+  const [isRequestingTelegramContact, setIsRequestingTelegramContact] =
+    useState(false);
+  const [hasSharedTelegramContact, setHasSharedTelegramContact] = useState(false);
 
   const { products, allProducts, categories, loading, error } = useProducts({
     search,
@@ -226,15 +255,53 @@ export default function ProductListPage() {
     clear();
   };
 
+  const handleRequestTelegramContact = () => {
+    const webApp = getTelegramWebApp();
+
+    if (!webApp?.requestContact || isRequestingTelegramContact) return;
+
+    resetCheckoutState();
+    setIsRequestingTelegramContact(true);
+
+    try {
+      webApp.requestContact((isShared, contactPayload) => {
+        const phone = normalizePhoneNumber(
+          getTelegramContactPhone(contactPayload)
+        );
+
+        if (isValidPhoneNumber(phone)) {
+          setCustomerPhone(phone);
+        }
+
+        if (isShared) {
+          setHasSharedTelegramContact(true);
+          setCheckoutStatus("success");
+          setCheckoutMessage(TELEGRAM_PHONE_SHARED_MESSAGE);
+        } else {
+          setCheckoutStatus("error");
+          setCheckoutMessage(TELEGRAM_PHONE_UNAVAILABLE_MESSAGE);
+        }
+
+        setIsRequestingTelegramContact(false);
+      });
+    } catch (error) {
+      console.error("Telegram contact request failed:", error);
+      setIsRequestingTelegramContact(false);
+      setCheckoutStatus("error");
+      setCheckoutMessage(TELEGRAM_PHONE_UNAVAILABLE_MESSAGE);
+    }
+  };
+
   const handleCheckout = async () => {
     if (cartList.length === 0 || checkoutStatus === "submitting") return;
 
     const initData = getTelegramInitData();
-    const canUseLocalCheckout = !initData && isLocalCheckoutPreview();
+    const normalizedPhone = normalizePhoneNumber(customerPhone);
+    const canUseTelegramContact = Boolean(initData && hasSharedTelegramContact);
 
-    if (!initData && !canUseLocalCheckout) {
+    if (!isValidPhoneNumber(normalizedPhone) && !canUseTelegramContact) {
       setCheckoutStatus("error");
-      setCheckoutMessage(TELEGRAM_CHECKOUT_MESSAGE);
+      setCheckoutMessage(PHONE_REQUIRED_MESSAGE);
       return;
     }
 
@@ -244,6 +311,10 @@ export default function ProductListPage() {
         quantity: qty,
       })),
     };
+
+    if (isValidPhoneNumber(normalizedPhone)) {
+      payload.customerPhone = normalizedPhone;
+    }
 
     if (initData) {
       payload.initData = initData;
@@ -271,6 +342,8 @@ export default function ProductListPage() {
       }
 
       clear();
+      setCustomerPhone("");
+      setHasSharedTelegramContact(false);
       setCheckoutStatus("success");
       setCheckoutMessage("Order placed successfully.");
     } catch (error) {
@@ -291,6 +364,8 @@ export default function ProductListPage() {
   useEffect(() => {
     getTelegramWebApp()?.ready?.();
     getTelegramWebApp()?.expand?.();
+
+    setCanRequestTelegramContact(Boolean(getTelegramWebApp()?.requestContact));
 
     const initData = getTelegramInitData();
     if (!initData) return;
@@ -402,6 +477,11 @@ export default function ProductListPage() {
           onRemove={handleRemoveFromCart}
           onClear={handleClearCart}
           onCheckout={handleCheckout}
+          customerPhone={customerPhone}
+          onCustomerPhoneChange={setCustomerPhone}
+          canRequestTelegramContact={canRequestTelegramContact}
+          isRequestingTelegramContact={isRequestingTelegramContact}
+          onRequestTelegramContact={handleRequestTelegramContact}
           checkoutStatus={checkoutStatus}
           checkoutMessage={checkoutMessage}
           total={total}

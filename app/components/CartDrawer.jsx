@@ -12,6 +12,11 @@ import React from "react";
  * @param {function} props.onClose   - () => void
  * @param {function} props.onClear   - () => void  (optional)
  * @param {function} props.onCheckout - () => void  (optional)
+ * @param {string}   props.customerPhone - checkout phone number
+ * @param {function} props.onCustomerPhoneChange - (phone) => void
+ * @param {boolean}  props.canRequestTelegramContact - show Telegram contact action
+ * @param {boolean}  props.isRequestingTelegramContact - Telegram contact request state
+ * @param {function} props.onRequestTelegramContact - () => void
  */
 export function CartDrawer({
   cartList,
@@ -20,6 +25,11 @@ export function CartDrawer({
   onClose,
   onClear,
   onCheckout,
+  customerPhone = "",
+  onCustomerPhoneChange,
+  canRequestTelegramContact = false,
+  isRequestingTelegramContact = false,
+  onRequestTelegramContact,
   checkoutStatus = "idle",
   checkoutMessage = "",
 }) {
@@ -113,6 +123,34 @@ export function CartDrawer({
                 ${total.toLocaleString()}
               </span>
             </div>
+            <label className="flex flex-col gap-1.5 text-[13px] font-medium text-slate-600">
+              Phone number
+              <input
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-[15px] font-semibold text-slate-900 outline-none transition-colors duration-200 placeholder:text-slate-400 focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={customerPhone}
+                onChange={(event) =>
+                  onCustomerPhoneChange?.(event.target.value)
+                }
+                placeholder="+855 12 345 678"
+                disabled={isSubmitting}
+                aria-label="Phone number"
+              />
+            </label>
+            {canRequestTelegramContact && (
+              <button
+                className="inline-flex items-center justify-center gap-1.5 rounded-full bg-slate-100 px-3.5 py-2 text-[13px] font-semibold tracking-[-0.01em] text-slate-600 transition-all duration-200 hover:bg-slate-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                onClick={onRequestTelegramContact}
+                disabled={isSubmitting || isRequestingTelegramContact}
+              >
+                {isRequestingTelegramContact
+                  ? "Requesting phone..."
+                  : "Share Telegram phone"}
+              </button>
+            )}
             {(isError || isSuccess) && checkoutMessage && (
               <p
                 className={`m-0 rounded-lg border px-3 py-2 text-[13px] leading-5 ${

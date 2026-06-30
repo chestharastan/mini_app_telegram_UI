@@ -6,31 +6,35 @@ const BACKEND_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "http://localhost:8000";
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-
-function isLocalDevelopmentRequest(request) {
-  if (process.env.NODE_ENV === "production") return false;
-
-  const hostHeader = request.headers.get("host") ?? "";
-  const host = hostHeader.startsWith("[")
-    ? hostHeader.slice(1, hostHeader.indexOf("]"))
-    : hostHeader.split(":")[0];
-
-  return LOCAL_HOSTS.has(host);
+function normalizePhoneNumber(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[^\d+]/g, "")
+    .replace(/(?!^)\+/g, "");
 }
 
-function createDevelopmentInitData(botToken) {
-  const user = {
-    id: Number(process.env.DEV_TELEGRAM_USER_ID ?? 100000001),
-    first_name: process.env.DEV_TELEGRAM_FIRST_NAME ?? "Local",
-    last_name: process.env.DEV_TELEGRAM_LAST_NAME ?? "Shopper",
-    username: process.env.DEV_TELEGRAM_USERNAME ?? "local_shopper",
-    language_code: process.env.DEV_TELEGRAM_LANGUAGE_CODE ?? "en",
-  };
+function isValidPhoneNumber(value) {
+  const digitCount = normalizePhoneNumber(value).replace(/\D/g, "").length;
 
+  return digitCount >= 7 && digitCount <= 15;
+}
+
+function createStableWebUserId(phoneNumber) {
+  const hash = crypto.createHash("sha256").update(phoneNumber).digest("hex");
+  return 1000000000 + (parseInt(hash.slice(0, 8), 16) % 900000000);
+}
+
+function getCustomerPhone(body) {
+  return normalizePhoneNumber(
+    body.customerPhone ?? body.customer_phone ?? body.phone
+  );
+}
+
+function createSignedInitData(botToken, user) {
+  const now = Date.now();
   const fields = {
-    auth_date: String(Math.floor(Date.now() / 1000)),
-    query_id: `dev-${Date.now()}`,
+    auth_date: String(Math.floor(now / 1000)),
+    query_id: `web-${now}`,
     user: JSON.stringify(user),
   };
 
@@ -55,23 +59,51 @@ function createDevelopmentInitData(botToken) {
   return params.toString();
 }
 
+function createWebCheckoutInitData(botToken, phoneNumber) {
+  const user = {
+    id: createStableWebUserId(phoneNumber),
+    first_name: `Web Customer ${phoneNumber}`,
+    last_name: "Vercel checkout",
+    username: "web_checkout",
+    language_code: process.env.DEV_TELEGRAM_LANGUAGE_CODE ?? "en",
+  };
+
+  return createSignedInitData(botToken, user);
+}
+
 export async function POST(request) {
   try {
     const body = await request.json();
     const orderPayload = { ...body };
+    const customerPhone = getCustomerPhone(body);
+    const hasTelegramInitData = Boolean(orderPayload.initData);
 
-    if (!orderPayload.initData && isLocalDevelopmentRequest(request)) {
+    if (!isValidPhoneNumber(customerPhone) && !hasTelegramInitData) {
+      return NextResponse.json(
+        { error: "A valid customer phone number is required." },
+        { status: 400 }
+      );
+    }
+
+    if (isValidPhoneNumber(customerPhone)) {
+      orderPayload.customerPhone = customerPhone;
+    }
+
+    if (!orderPayload.initData) {
       if (!process.env.BOT_TOKEN) {
         return NextResponse.json(
           {
             error:
-              "Local browser checkout needs BOT_TOKEN in web-ecommerce/.env.local, or open this shop inside Telegram.",
+              "Checkout needs BOT_TOKEN configured on the server to create web orders.",
           },
           { status: 500 }
         );
       }
 
-      orderPayload.initData = createDevelopmentInitData(process.env.BOT_TOKEN);
+      orderPayload.initData = createWebCheckoutInitData(
+        process.env.BOT_TOKEN,
+        customerPhone
+      );
     }
 
     const response = await fetch(`${BACKEND_BASE_URL}/api/orders`, {
