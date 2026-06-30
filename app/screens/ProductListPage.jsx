@@ -10,8 +10,10 @@ import { CartDrawer } from "../components/CartDrawer";
 import { AUTH_API_ENDPOINT } from "../data/auth";
 import { ORDERS_API_ENDPOINT } from "../data/orders";
 
-const PHONE_REQUIRED_MESSAGE = "Enter a valid phone number to checkout.";
-const TELEGRAM_PHONE_SHARED_MESSAGE = "Telegram phone shared. You can checkout now.";
+const PHONE_REQUIRED_MESSAGE =
+  "Enter a valid phone number to checkout, or open the shop inside Telegram.";
+const TELEGRAM_PHONE_SHARED_MESSAGE =
+  "Phone shared. Thank you. Please tap checkout again.";
 const TELEGRAM_PHONE_UNAVAILABLE_MESSAGE =
   "Could not get your Telegram phone. Enter it manually to checkout.";
 
@@ -59,6 +61,8 @@ function isValidPhoneNumber(value) {
 }
 
 function getCheckoutErrorMessage(data, fallback) {
+  if (typeof data?.detail?.message === "string") return data.detail.message;
+
   if (typeof data?.detail === "string") return data.detail;
 
   if (Array.isArray(data?.detail)) {
@@ -71,6 +75,34 @@ function getCheckoutErrorMessage(data, fallback) {
   }
 
   return data?.error || data?.message || fallback;
+}
+
+function isPhoneRequiredResponse(data) {
+  return data?.detail?.code === "PHONE_REQUIRED" || data?.code === "PHONE_REQUIRED";
+}
+
+function confirmTelegramContactRequest(webApp, message) {
+  return new Promise((resolve) => {
+    if (webApp?.showConfirm) {
+      webApp.showConfirm(`${message}\n\nShare from Telegram?`, resolve);
+      return;
+    }
+
+    resolve(window.confirm(`${message}\n\nShare from Telegram?`));
+  });
+}
+
+function requestTelegramContact(webApp) {
+  return new Promise((resolve, reject) => {
+    if (!webApp?.requestContact) {
+      reject(new Error("Telegram contact sharing is not available."));
+      return;
+    }
+
+    webApp.requestContact((isShared, contactPayload) => {
+      resolve({ isShared, contactPayload });
+    });
+  });
 }
 
 // Arrow button component
@@ -211,6 +243,8 @@ export default function ProductListPage() {
   const [isRequestingTelegramContact, setIsRequestingTelegramContact] =
     useState(false);
   const [hasSharedTelegramContact, setHasSharedTelegramContact] = useState(false);
+  const [hasSavedTelegramPhone, setHasSavedTelegramPhone] = useState(false);
+  const [isTelegramCheckout, setIsTelegramCheckout] = useState(false);
 
   const { products, allProducts, categories, loading, error } = useProducts({
     search,
@@ -255,41 +289,60 @@ export default function ProductListPage() {
     clear();
   };
 
-  const handleRequestTelegramContact = () => {
+  const shareTelegramContact = async ({ confirm = false, message = "" } = {}) => {
     const webApp = getTelegramWebApp();
 
-    if (!webApp?.requestContact || isRequestingTelegramContact) return;
+    if (!webApp?.requestContact || isRequestingTelegramContact) {
+      setCheckoutStatus("error");
+      setCheckoutMessage(TELEGRAM_PHONE_UNAVAILABLE_MESSAGE);
+      return false;
+    }
+
+    if (confirm) {
+      const ok = await confirmTelegramContactRequest(webApp, message);
+      if (!ok) {
+        setCheckoutStatus("idle");
+        setCheckoutMessage("");
+        return false;
+      }
+    }
 
     resetCheckoutState();
     setIsRequestingTelegramContact(true);
 
     try {
-      webApp.requestContact((isShared, contactPayload) => {
-        const phone = normalizePhoneNumber(
-          getTelegramContactPhone(contactPayload)
-        );
+      const { isShared, contactPayload } = await requestTelegramContact(webApp);
+      const phone = normalizePhoneNumber(
+        getTelegramContactPhone(contactPayload)
+      );
 
-        if (isValidPhoneNumber(phone)) {
-          setCustomerPhone(phone);
-        }
+      if (isValidPhoneNumber(phone)) {
+        setCustomerPhone(phone);
+      }
 
-        if (isShared) {
-          setHasSharedTelegramContact(true);
-          setCheckoutStatus("success");
-          setCheckoutMessage(TELEGRAM_PHONE_SHARED_MESSAGE);
-        } else {
-          setCheckoutStatus("error");
-          setCheckoutMessage(TELEGRAM_PHONE_UNAVAILABLE_MESSAGE);
-        }
+      if (isShared) {
+        setHasSharedTelegramContact(true);
+        setHasSavedTelegramPhone(true);
+        setCheckoutStatus("success");
+        setCheckoutMessage(TELEGRAM_PHONE_SHARED_MESSAGE);
+        return true;
+      }
 
-        setIsRequestingTelegramContact(false);
-      });
-    } catch (error) {
-      console.error("Telegram contact request failed:", error);
-      setIsRequestingTelegramContact(false);
       setCheckoutStatus("error");
       setCheckoutMessage(TELEGRAM_PHONE_UNAVAILABLE_MESSAGE);
+      return false;
+    } catch (error) {
+      console.error("Telegram contact request failed:", error);
+      setCheckoutStatus("error");
+      setCheckoutMessage(TELEGRAM_PHONE_UNAVAILABLE_MESSAGE);
+      return false;
+    } finally {
+      setIsRequestingTelegramContact(false);
     }
+  };
+
+  const handleRequestTelegramContact = () => {
+    void shareTelegramContact();
   };
 
   const handleCheckout = async () => {
@@ -297,9 +350,9 @@ export default function ProductListPage() {
 
     const initData = getTelegramInitData();
     const normalizedPhone = normalizePhoneNumber(customerPhone);
-    const canUseTelegramContact = Boolean(initData && hasSharedTelegramContact);
+    const canUseTelegramUserId = Boolean(initData);
 
-    if (!isValidPhoneNumber(normalizedPhone) && !canUseTelegramContact) {
+    if (!isValidPhoneNumber(normalizedPhone) && !canUseTelegramUserId) {
       setCheckoutStatus("error");
       setCheckoutMessage(PHONE_REQUIRED_MESSAGE);
       return;
@@ -333,6 +386,18 @@ export default function ProductListPage() {
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
+        if (
+          response.status === 409 &&
+          isPhoneRequiredResponse(data) &&
+          initData
+        ) {
+          await shareTelegramContact({
+            confirm: true,
+            message: getCheckoutErrorMessage(data, PHONE_REQUIRED_MESSAGE),
+          });
+          return;
+        }
+
         throw new Error(
           getCheckoutErrorMessage(
             data,
@@ -342,6 +407,9 @@ export default function ProductListPage() {
       }
 
       clear();
+      if (isTelegramCheckout) {
+        setHasSavedTelegramPhone(true);
+      }
       setCustomerPhone("");
       setHasSharedTelegramContact(false);
       setCheckoutStatus("success");
@@ -368,6 +436,8 @@ export default function ProductListPage() {
     setCanRequestTelegramContact(Boolean(getTelegramWebApp()?.requestContact));
 
     const initData = getTelegramInitData();
+    setIsTelegramCheckout(Boolean(initData));
+
     if (!initData) return;
 
     fetch(AUTH_API_ENDPOINT, {
@@ -376,7 +446,10 @@ export default function ProductListPage() {
       body: JSON.stringify({ initData }),
     })
       .then((r) => r.json())
-      .then((data) => setUser(data.user))
+      .then((data) => {
+        setUser(data.user);
+        setHasSavedTelegramPhone(Boolean(data.user?.has_phone));
+      })
       .catch((err) => console.error("Auth failed:", err));
   }, []);
 
@@ -482,6 +555,12 @@ export default function ProductListPage() {
           canRequestTelegramContact={canRequestTelegramContact}
           isRequestingTelegramContact={isRequestingTelegramContact}
           onRequestTelegramContact={handleRequestTelegramContact}
+          isTelegramCheckout={isTelegramCheckout}
+          hasTelegramPhone={
+            hasSavedTelegramPhone ||
+            hasSharedTelegramContact ||
+            isValidPhoneNumber(customerPhone)
+          }
           checkoutStatus={checkoutStatus}
           checkoutMessage={checkoutMessage}
           total={total}
