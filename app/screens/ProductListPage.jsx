@@ -10,6 +10,38 @@ import { CartDrawer } from "../components/CartDrawer";
 import { AUTH_API_ENDPOINT } from "../data/auth";
 import { ORDERS_API_ENDPOINT } from "../data/orders";
 
+const TELEGRAM_CHECKOUT_MESSAGE =
+  "Telegram init data is missing. Open this shop in Telegram to checkout.";
+
+function getTelegramWebApp() {
+  return window.Telegram?.WebApp;
+}
+
+function getTelegramInitData() {
+  return getTelegramWebApp()?.initData || "";
+}
+
+function isLocalCheckoutPreview() {
+  if (process.env.NODE_ENV === "production") return false;
+
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function getCheckoutErrorMessage(data, fallback) {
+  if (typeof data?.detail === "string") return data.detail;
+
+  if (Array.isArray(data?.detail)) {
+    const detailMessage = data.detail
+      .map((item) => item?.msg)
+      .filter(Boolean)
+      .join(" ");
+
+    if (detailMessage) return detailMessage;
+  }
+
+  return data?.error || data?.message || fallback;
+}
+
 // Arrow button component
 function ScrollArrow({ direction, onClick, visible }) {
   if (!visible) return null;
@@ -190,21 +222,25 @@ export default function ProductListPage() {
   const handleCheckout = async () => {
     if (cartList.length === 0 || checkoutStatus === "submitting") return;
 
-    const initData = window.Telegram?.WebApp?.initData;
+    const initData = getTelegramInitData();
+    const canUseLocalCheckout = !initData && isLocalCheckoutPreview();
 
-    if (!initData) {
+    if (!initData && !canUseLocalCheckout) {
       setCheckoutStatus("error");
-      setCheckoutMessage("Telegram init data is missing. Open this shop in Telegram to checkout.");
+      setCheckoutMessage(TELEGRAM_CHECKOUT_MESSAGE);
       return;
     }
 
     const payload = {
-      initData,
       items: cartList.map(({ product, qty }) => ({
         product_id: product.id,
         quantity: qty,
       })),
     };
+
+    if (initData) {
+      payload.initData = initData;
+    }
 
     setCheckoutStatus("submitting");
     setCheckoutMessage("");
@@ -220,9 +256,10 @@ export default function ProductListPage() {
 
       if (!response.ok) {
         throw new Error(
-          data?.error ||
-            data?.message ||
+          getCheckoutErrorMessage(
+            data,
             `Order request failed with status ${response.status}`
+          )
         );
       }
 
@@ -245,8 +282,12 @@ export default function ProductListPage() {
   }, [categories, category]);
 
   useEffect(() => {
-    const initData = window.Telegram?.WebApp?.initData;
+    getTelegramWebApp()?.ready?.();
+    getTelegramWebApp()?.expand?.();
+
+    const initData = getTelegramInitData();
     if (!initData) return;
+
     fetch(AUTH_API_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
