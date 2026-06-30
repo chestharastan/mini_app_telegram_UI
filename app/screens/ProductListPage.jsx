@@ -11,14 +11,21 @@ import { AUTH_API_ENDPOINT } from "../data/auth";
 import { ORDERS_API_ENDPOINT } from "../data/orders";
 
 const TELEGRAM_CHECKOUT_MESSAGE =
-  "Telegram init data is missing. Open this shop in Telegram to checkout.";
+  "Telegram init data is missing. Open this shop from the bot's Mini App button, not as a normal Vercel link.";
 
 function getTelegramWebApp() {
   return window.Telegram?.WebApp;
 }
 
+function getTelegramLaunchParam(name) {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const searchParams = new URLSearchParams(window.location.search);
+
+  return hashParams.get(name) || searchParams.get(name) || "";
+}
+
 function getTelegramInitData() {
-  return getTelegramWebApp()?.initData || "";
+  return getTelegramWebApp()?.initData || getTelegramLaunchParam("tgWebAppData");
 }
 
 function isLocalCheckoutPreview() {
