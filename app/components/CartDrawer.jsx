@@ -41,10 +41,8 @@ export function CartDrawer({
   const isSubmitting = checkoutStatus === "submitting";
   const isSuccess = checkoutStatus === "success";
   const isError = checkoutStatus === "error";
-  const showTelegramPhonePrompt =
-    isTelegramCheckout && canRequestTelegramContact && !hasTelegramPhone;
-  const showPhoneInput =
-    !isTelegramCheckout || (!canRequestTelegramContact && !hasTelegramPhone);
+  const showTelegramPhonePrompt = isTelegramCheckout && !hasTelegramPhone;
+  const showPhoneInput = !isTelegramCheckout;
 
   return (
     <>
@@ -154,7 +152,7 @@ export function CartDrawer({
                 team can contact you about your order.
               </p>
             ) : null}
-            {showTelegramPhonePrompt && (
+            {showTelegramPhonePrompt && canRequestTelegramContact && (
               <button
                 className="inline-flex items-center justify-center gap-1.5 rounded-full bg-slate-100 px-3.5 py-2 text-[13px] font-semibold tracking-[-0.01em] text-slate-600 transition-all duration-200 hover:bg-slate-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
                 type="button"
