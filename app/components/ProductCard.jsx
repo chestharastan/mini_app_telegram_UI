@@ -1,14 +1,7 @@
 // components/ProductCard.jsx
-// Product card with a fixed media area and compact purchase controls.
 
 import React, { useState } from "react";
 
-/**
- * @param {object}   props
- * @param {object}   props.product  - product record from data/products.js
- * @param {number}   props.cartQty  - how many of this item are in the cart
- * @param {function} props.onAdd    - (product) => void
- */
 export function ProductCard({ product, cartQty = 0, onAdd }) {
   const [imgError, setImgError] = useState(false);
   const outOfStock = product.stock === 0;
@@ -57,34 +50,14 @@ export function ProductCard({ product, cartQty = 0, onAdd }) {
 
       <div className="relative z-20 flex flex-1 flex-col gap-[9px] bg-white p-4">
         <div className="flex items-start gap-2">
-          <h3 className="m-0 min-w-0 flex-1 text-[15px] font-semibold leading-[1.3] text-slate-900">
+          {/* ✅ clamp to 2 lines */}
+          <h3 className="m-0 min-w-0 flex-1 line-clamp-2 text-[15px] font-semibold leading-[1.3] text-slate-900">
             {product.name}
           </h3>
-          {/* {!outOfStock && (
-            <span
-              className="mt-px inline-flex h-[17px] w-[17px] flex-none items-center justify-center rounded-full bg-green-600 text-white shadow-[0_2px_7px_rgba(22,163,74,0.24)]"
-              aria-label="In stock"
-            >
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 10 10"
-                fill="none"
-                aria-hidden="true"
-              >
-                <path
-                  d="M2 5l2.5 2.5L8 3"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
-          )} */}
         </div>
 
-        <p className="m-0 text-[13px] leading-[1.45] text-slate-500">
+        {/* ✅ clamp to 3 lines, flex-1 pushes bottom row down */}
+        <p className="m-0 flex-1 line-clamp-3 text-[13px] leading-[1.45] text-slate-500">
           {product.description}
         </p>
 

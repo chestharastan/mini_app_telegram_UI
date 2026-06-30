@@ -13,7 +13,7 @@ import React from "react";
 export function CategoryFilter({ categories, active, onChange }) {
   return (
     <nav
-      className="[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-nowrap gap-1.5 overflow-x-auto pb-1"
+      className="[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-nowrap gap-2 overflow-x-auto pb-1"
       aria-label="Filter by category"
     >
       {categories.map((cat) => {
@@ -24,10 +24,10 @@ export function CategoryFilter({ categories, active, onChange }) {
           <button
             key={cat.id}
             className={[
-              "shrink-0 rounded-full border px-3.5 py-1.5 font-sans text-[13px] font-medium transition",
+              "shrink-0 rounded-full px-4 py-[7px] font-sans text-[13px] font-semibold tracking-[-0.01em] transition-all duration-200 active:scale-95",
               isActive
-                ? "border-indigo-500 bg-indigo-50 text-indigo-600"
-                : "border-slate-300 bg-white text-slate-500 hover:border-indigo-500 hover:text-indigo-600",
+                ? "bg-slate-900 text-white"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200",
             ].join(" ")}
             type="button"
             onClick={() => onChange(value)}
