@@ -32,6 +32,19 @@ function getTelegramInitData() {
   return getTelegramWebApp()?.initData || getTelegramLaunchParam("tgWebAppData");
 }
 
+function isTelegramEnvironment() {
+  const webApp = getTelegramWebApp();
+  const platform = webApp?.platform;
+
+  return Boolean(
+    getTelegramInitData() ||
+      webApp?.initDataUnsafe?.user?.id ||
+      getTelegramLaunchParam("tgWebAppVersion") ||
+      getTelegramLaunchParam("tgWebAppPlatform") ||
+      (platform && platform !== "unknown")
+  );
+}
+
 function getTelegramContactPhone(contactPayload) {
   if (!contactPayload || typeof contactPayload !== "object") return "";
 
@@ -430,27 +443,37 @@ export default function ProductListPage() {
   }, [categories, category]);
 
   useEffect(() => {
-    getTelegramWebApp()?.ready?.();
-    getTelegramWebApp()?.expand?.();
+    let didAuth = false;
 
-    setCanRequestTelegramContact(Boolean(getTelegramWebApp()?.requestContact));
+    const updateTelegramState = () => {
+      const webApp = getTelegramWebApp();
+      webApp?.ready?.();
+      webApp?.expand?.();
 
-    const initData = getTelegramInitData();
-    setIsTelegramCheckout(Boolean(initData));
+      setCanRequestTelegramContact(Boolean(webApp?.requestContact));
+      setIsTelegramCheckout(isTelegramEnvironment());
 
-    if (!initData) return;
+      const initData = getTelegramInitData();
+      if (!initData || didAuth) return;
 
-    fetch(AUTH_API_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData }),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        setUser(data.user);
-        setHasSavedTelegramPhone(Boolean(data.user?.has_phone));
+      didAuth = true;
+      fetch(AUTH_API_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData }),
       })
-      .catch((err) => console.error("Auth failed:", err));
+        .then((r) => r.json())
+        .then((data) => {
+          setUser(data.user);
+          setHasSavedTelegramPhone(Boolean(data.user?.has_phone));
+        })
+        .catch((err) => console.error("Auth failed:", err));
+    };
+
+    updateTelegramState();
+    const timer = window.setTimeout(updateTelegramState, 500);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   return (
